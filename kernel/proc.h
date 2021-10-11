@@ -106,6 +106,6 @@ struct proc {
   int alarm_interval;
   uint64 alarm_handler;
   int ticks_passed;
-  struct trapframe sig_trapframe;
-  int sig_handling;
+  struct trapframe sig_trapframe; // Back up of trapframe
+  int sig_handling;               // If non-zero, an alarm handler is running
 };
