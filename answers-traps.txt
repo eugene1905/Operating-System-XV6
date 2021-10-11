@@ -1,0 +1,7 @@
+1.	a0 – a7, register a2 holds 13 in main’s call to printf.
+2.	there is no calling of function f and g. (li a1 12 instead, might be compiler did some optimization)
+3.	0x630
+4.	0x38 (0x34+4 to return to next instruction)
+5.	He110 World
+6.	unsigned int i = 0x726c6400 instead, no need to change 57616.
+7.	current value register a1 holds, printf assumes the parameter is stored in a1 though there was missing argument in function call.
