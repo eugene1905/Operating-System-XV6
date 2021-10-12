@@ -1,0 +1,1 @@
+In function call insert() , threads might be writing to the same address when operating *p = e, resulting in the loss of data.
