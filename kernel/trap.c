@@ -67,19 +67,11 @@ usertrap(void)
     syscall();
   } else if (r_scause() == 15 || r_scause() == 13){ // page fault
     uint64 va = r_stval(); // va that caused the page fault
-    printf("page fault %p\n", va);
-    uint64 ka = (uint64) kalloc();
-    if (ka == 0) { // OOM
+    //printf("page fault %p\n", va);
+    if(allocate_page(va) != 0){
+      // (5) OOM kills the current process
       p->killed = 1;
-    } else {
-      memset ((void *) ka, 0, PGSIZE);
-      va = PGROUNDDOWN(va);
-      if (mappages(p->pagetable, va, PGSIZE, ka, PTE_W|PTE_U|PTE_R) != 0) {
-        kfree((void *)ka);
-        p->killed = 1;
-      }
     }
-
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {

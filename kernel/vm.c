@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -99,12 +101,13 @@ walkaddr(pagetable_t pagetable, uint64 va)
 
   if(va >= MAXVA)
     return 0;
-
+  
   pte = walk(pagetable, va, 0);
-  if(pte == 0)
-    return 0;
-  if((*pte & PTE_V) == 0)
-    return 0;
+  //(4) valid address that has not yet been allocated.
+  if (pte == 0 || (*pte & PTE_V) == 0){
+    if(allocate_page(va) != 0)
+      return 0;
+  }
   if((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
@@ -181,9 +184,10 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue; 
+      //panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
-      continue;
+      continue; //lazy allocation
       //panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
@@ -313,12 +317,14 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uint64 pa, i;
   uint flags;
   char *mem;
-
+  //(3) parent-to-child memory copy
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      //panic("uvmcopy: pte should exist");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      //panic("uvmcopy: page not present");
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -440,4 +446,35 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// Lazy Allocate Page
+// Returns 0 on success, -1 on error.
+int
+allocate_page(uint64 va)
+{
+  struct proc *p = myproc();
+  //(2) page fault addr higher than any allocated with sbrk()
+  if (va >= p->sz) { 
+    return -1;
+  }
+
+  //(6) page fault addr lower than user stack
+  if (va <= p->trapframe->sp){
+    return -1;
+  }
+  
+  uint64 ka = (uint64) kalloc();
+  if (ka == 0) { // (5) OOM kills the current process
+    return -1;
+  } 
+  else {
+    memset ((void *) ka, 0, PGSIZE);
+    va = PGROUNDDOWN(va);
+    if (mappages(p->pagetable, va, PGSIZE, ka, PTE_W|PTE_U|PTE_R) != 0) {
+      kfree((void *)ka);
+      return -1;
+    }
+  }
+  return 0;
 }
