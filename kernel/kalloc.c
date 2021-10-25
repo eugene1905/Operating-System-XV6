@@ -9,6 +9,9 @@
 #include "riscv.h"
 #include "defs.h"
 
+struct spinlock ref_cnt_lock; // shared data, thus lock required
+int ref_cnt[PGROUNDUP(PHYSTOP) / PGSIZE]; // reference count for each physical page
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -26,6 +29,8 @@ struct {
 void
 kinit()
 {
+  initlock(&ref_cnt_lock, "ref_cnt");
+  memset(ref_cnt, 0, sizeof(ref_cnt));
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
 }
@@ -36,7 +41,13 @@ freerange(void *pa_start, void *pa_end)
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  {
+    acquire(&ref_cnt_lock);
+    ref_cnt[PA2IDX(p)]++;
+    release(&ref_cnt_lock);
     kfree(p);
+  }
+    
 }
 
 // Free the page of physical memory pointed at by v,
@@ -50,6 +61,14 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+
+  // only release when reference count = 0
+  acquire(&ref_cnt_lock);
+  if(--ref_cnt[PA2IDX(pa)] != 0){
+    release(&ref_cnt_lock);
+    return;
+  }
+  release(&ref_cnt_lock);
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -76,7 +95,11 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r){
     memset((char*)r, 5, PGSIZE); // fill with junk
+    acquire(&ref_cnt_lock);
+    ref_cnt[PA2IDX(r)]++;
+    release(&ref_cnt_lock);
+  }    
   return (void*)r;
 }

@@ -65,6 +65,13 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 13 || r_scause() == 15){ // Page fault
+    uint64 va = r_stval();
+    if (allocate_page(va) != 0){
+      printf("usertrap(): segement fault pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      p->killed = 1;
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
