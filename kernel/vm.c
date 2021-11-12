@@ -440,3 +440,27 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+void
+pageprint(pagetable_t pagetable, int layer)
+{
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V) == 0) // invalid pte
+      continue;
+    uint64 pa = PTE2PA(pte);
+
+    /* print page info */
+    for(int j = 0; j < layer; j++)
+      printf(".. ");
+    printf("..%d: pte %p pa %p\n", i, pte, pa);
+
+    if((pte & (PTE_R|PTE_W|PTE_X)) == 0) // not final layer yet
+      pageprint((pagetable_t)pa, layer+1);
+  }
+}
+void 
+vmprint(pagetable_t pagetable){
+  printf("page table %p\n", pagetable);
+  pageprint(pagetable, 0);
+}
