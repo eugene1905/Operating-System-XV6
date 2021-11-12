@@ -49,6 +49,7 @@ sys_sbrk(void)
   addr = myproc()->sz;
   if(growproc(n) < 0)
     return -1;
+  pgtbl_sync(myproc()->pagetable, myproc()->kpagetable, addr, addr+n);
   return addr;
 }
 

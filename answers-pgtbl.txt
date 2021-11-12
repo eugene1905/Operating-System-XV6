@@ -1,0 +1,8 @@
+Explain the output of vmprint in terms of Fig 3-4 from the text. What does page 0 contain? What is in page 2? When running in user mode, could the process read/write the memory mapped by page 1?
+> Page 0 contains text and data.
+> Page 2 is user stack, arguments & address of argument are in it. 
+> No, page 1 acts as guard page with PTE_U set as 0, process in user mode doesn't have access to it.
+
+Explain why the third test srcva + len < srcva is necessary in copyin_new(): give values for srcva and len for which the first two test fail (i.e., they will not cause to return -1) but for which the third one is true (resulting in returning -1).
+> To prevent the sum overflows uint64.
+> let srcva = p->sz - 1, len = 0x7FFFFFFFFFFFFFFF - srcva + 1, thus srcva + len =  0x7FFFFFFFFFFFFFFF + 1 = 0

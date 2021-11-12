@@ -424,6 +424,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+  /*
   uint64 n, va0, pa0;
 
   while(len > 0){
@@ -441,6 +442,8 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     srcva = va0 + PGSIZE;
   }
   return 0;
+  */
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -450,6 +453,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+  /*
   uint64 n, va0, pa0;
   int got_null = 0;
 
@@ -484,6 +488,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+  */
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 void
@@ -509,4 +515,27 @@ void
 vmprint(pagetable_t pagetable){
   printf("page table %p\n", pagetable);
   pageprint(pagetable, 0);
+}
+
+int
+pgtbl_sync(pagetable_t user_pt, pagetable_t kernel_pt, uint64 oldsz, uint64 newsz)
+{
+  uint64 va;
+  pte_t *user_pte, *kernel_pte;
+  if (newsz > PLIC)
+    panic("pgtbl_sync: user processes grow larger than PLIC");
+  for (va = oldsz; va < newsz; va += PGSIZE)
+  {
+    if((user_pte = walk(user_pt, va, 0)) == 0)
+      panic("pgtbl_sync");
+    if ((kernel_pte = walk(kernel_pt, va, 1)) == 0)
+      return -1;
+    *kernel_pte = *user_pte & ~PTE_U;
+  }
+  for (va = newsz; va < oldsz; va += PGSIZE)
+  {
+    kernel_pte = walk(kernel_pt, va, 1);
+    *kernel_pte &= ~PTE_V;
+  }
+  return 0;
 }
