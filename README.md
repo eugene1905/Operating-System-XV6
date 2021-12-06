@@ -6,3 +6,4 @@ Lab 6 : `thread`
 Lab 4 : `lazy`  
 Lab 5 : `cow`  
 Lab 2 : `pgtbl`  
+Lab 7 : `lock`  
