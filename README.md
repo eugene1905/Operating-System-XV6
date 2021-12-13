@@ -7,3 +7,5 @@ Lab 4 : `lazy`
 Lab 5 : `cow`  
 Lab 2 : `pgtbl`  
 Lab 7 : `lock`  
+Lab 8 : `fs`  
+Lab 9 : `mmap`  
