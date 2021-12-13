@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"  // lab10
+#include "fs.h"     // lab10
+#include "file.h"   // lab10
+#include "fcntl.h"  // lab10
 
 struct spinlock tickslock;
 uint ticks;
@@ -65,9 +69,64 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if (r_scause() == 12 || r_scause() == 13 || r_scause() == 15) {
+    // 12: instruction page fault, 13: load page fault, 15: store/AMO page fault
+    char *pa;
+    uint64 va = PGROUNDDOWN(r_stval());
+    struct vm_area *vma = 0;
+    int flags = PTE_U;
+    int i;
+    // find the VMA
+    for (i = 0; i < NVMA; ++i) {
+      if (p->vma[i].addr && va >= p->vma[i].addr && va < p->vma[i].addr + p->vma[i].length) {
+        vma = &p->vma[i];
+        break;
+      }
+    }
+    if (!vma) {
+      goto err;
+    }
+    // set dirty bit & write bit ()
+    if (r_scause() == 15 && (vma->prot & PROT_WRITE) && walkaddr(p->pagetable, va)) {
+      if (uvmsetdw(p->pagetable, va)) {
+        goto err;
+      }
+    } 
+    else {
+      if ((pa = kalloc()) == 0) {
+        goto err;
+      }
+      memset(pa, 0, PGSIZE);
+
+      // read a page from file
+      ilock(vma->f->ip);
+      if (readi(vma->f->ip, 0, (uint64) pa, va - vma->addr + vma->offset, PGSIZE) < 0) {
+        iunlock(vma->f->ip);
+        goto err;
+      }
+      iunlock(vma->f->ip);
+
+      // setting flags
+      if ((vma->prot & PROT_READ)) {
+        flags |= PTE_R;
+      }
+      if (r_scause() == 15 && (vma->prot & PROT_WRITE)) {
+        flags |= PTE_W | PTE_D;
+      }
+      if ((vma->prot & PROT_EXEC)) {
+        flags |= PTE_X;
+      }
+
+      // actually maps va to pa
+      if (mappages(p->pagetable, va, PGSIZE, (uint64) pa, flags) != 0) {
+        kfree(pa);
+        goto err;
+      }
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
+err:
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

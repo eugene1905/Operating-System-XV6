@@ -13,8 +13,13 @@
 #include "proc.h"
 #include "fs.h"
 #include "sleeplock.h"
-#include "file.h"
 #include "fcntl.h"
+#include "file.h"
+#include "memlayout.h"  // lab10
+
+#define max(a, b) ((a) > (b) ? (a) : (b))   
+#define min(a, b) ((a) < (b) ? (a) : (b))   
+
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -481,6 +486,147 @@ sys_pipe(void)
     fileclose(rf);
     fileclose(wf);
     return -1;
+  }
+  return 0;
+}
+
+uint64 
+sys_mmap(void) 
+{
+  uint64 addr;
+  int len, prot, flags, offset;
+  struct file *f;
+  struct vm_area *vma = 0;
+  struct proc *p = myproc();
+  int i;
+
+  // get arguments
+  // in this lab, we can safely assume addr = offset = 0
+  if(argaddr(0, &addr) < 0) return -1;
+  if(argint(1, &len) < 0) return -1;
+  if(argint(2, &prot) < 0) return -1;
+  if(argint(3, &flags) < 0) return -1;
+  if(argfd(4, 0, &f) < 0) return -1;
+  if(argint(5, &offset) < 0) return -1; 
+  
+  // error check
+  if (flags != MAP_SHARED && flags != MAP_PRIVATE) return -1;
+  if (flags == MAP_SHARED && (prot & PROT_WRITE) && !f->writable) return -1;
+  if (len < 0 || offset < 0 || offset % PGSIZE) return -1;
+
+  // find a valid VMA
+  for (i = 0; i < NVMA; ++i) {
+    if (!p->vma[i].addr) {
+      vma = &p->vma[i];
+      break;
+    }
+  }
+
+  // no valid VMA found
+  if(vma == 0) return -1;
+
+  // find a proper start address for vma
+  addr = MMAPMINADDR;
+  for (i = 0; i < NVMA; ++i) {
+    if (p->vma[i].addr) {
+      // get the max address of the mapped memory  
+      addr = max(addr, p->vma[i].addr + p->vma[i].length);
+    }
+  }
+  addr = PGROUNDUP(addr);
+  if (addr + len > TRAPFRAME)return -1;
+
+  // init vma
+  vma->addr = addr;   
+  vma->length = len;
+  vma->prot = prot;
+  vma->flags = flags;
+  vma->offset = offset;
+  vma->f = f;
+  filedup(f); 
+
+  return addr;
+}
+
+uint64 
+sys_munmap(void) 
+{
+  uint64 addr, va;
+  int len;
+  struct proc *p = myproc();
+  struct vm_area *vma = 0;
+  uint maxsz, n, n1;
+  int i;
+
+  // get arguments
+  if(argaddr(0, &addr) < 0) return -1;
+  if(argint(1, &len) < 0) return -1;
+
+  if (len == 0) return 0;
+
+  // error check
+  if (addr % PGSIZE || len < 0) return -1;
+  
+
+  // find the VMA
+  for (i = 0; i < NVMA; ++i) {
+    if (p->vma[i].addr && addr >= p->vma[i].addr && addr + len <= p->vma[i].addr + p->vma[i].length) {
+      vma = &p->vma[i];
+      break;
+    }
+  }
+  if (vma == 0) return -1;
+
+
+  if ((vma->flags & MAP_SHARED)) {
+    // write a few blocks at a time to avoid exceeding
+    // the maximum log transaction size, including
+    // i-node, indirect block, allocation blocks,
+    // and 2 blocks of slop for non-aligned writes.
+    // this really belongs lower down, since writei()
+    // might be writing a device like the console.
+    maxsz = ((MAXOPBLOCKS - 1 - 1 - 2) / 2) * BSIZE;
+    for (va = addr; va < addr + len; va += PGSIZE) {
+      if (uvmgetd(p->pagetable, va) == 0) {
+        continue;
+      }
+      // write back dirty page
+      n = min(PGSIZE, addr + len - va);
+      for (i = 0; i < n; i += n1) {
+        n1 = min(maxsz, n - i);
+        begin_op();
+        ilock(vma->f->ip);
+        if (writei(vma->f->ip, 1, va + i, va - vma->addr + vma->offset + i, n1) != n1) {
+          iunlock(vma->f->ip);
+          end_op();
+          return -1;
+        }
+        iunlock(vma->f->ip);
+        end_op();
+      }
+    }
+  }
+  uvmunmap(p->pagetable, addr, (len - 1) / PGSIZE + 1, 1);
+  // update VMA
+  if (addr == vma->addr && len == vma->length) { // munmap whole VMA
+    vma->addr = 0;
+    vma->length = 0;
+    vma->offset = 0;
+    vma->flags = 0;
+    vma->prot = 0;
+    fileclose(vma->f);
+    vma->f = 0;
+  } 
+  else if (addr == vma->addr) { // munmap head of VMA
+    vma->addr += len;
+    vma->offset += len;
+    vma->length -= len;
+  } 
+  else if (addr + len == vma->addr + vma->length) { // munmap tail of VMA
+    vma->length -= len;
+  } 
+  else {
+    panic("unexpected munmap");
   }
   return 0;
 }
